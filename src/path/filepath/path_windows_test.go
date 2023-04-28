@@ -73,7 +73,7 @@ func testWinSplitListTestIsValid(t *testing.T, ti int, tt SplitListTest,
 		exp := []byte(d + "\r\n")
 		cmd := &exec.Cmd{
 			Path: comspec,
-			Args: []string{`/c`, cmdfile},
+			Args: []string{comspec, `/c`, cmdfile},
 			Env:  []string{`Path=` + systemRoot + "/System32;" + tt.list, `SystemRoot=` + systemRoot},
 			Dir:  tmp,
 		}

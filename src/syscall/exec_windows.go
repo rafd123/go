@@ -287,24 +287,28 @@ func StartProcess(argv0 string, argv []string, attr *ProcAttr) (pid int, handle 
 			return 0, 0, err
 		}
 	}
-	argv0p, err := UTF16PtrFromString(argv0)
-	if err != nil {
-		return 0, 0, err
-	}
 
+	var appnamep *uint16
 	var cmdline string
 	// Windows CreateProcess takes the command line as a single string:
 	// use attr.CmdLine if set, else build the command line by escaping
-	// and joining each argument with spaces
+	// and joining each argument with spaces, and pass appnamep as nil to
+	// allow CreateProcess to parse the module from the command line.
 	if sys.CmdLine != "" {
 		cmdline = sys.CmdLine
+		appnamep, err = UTF16PtrFromString(argv0)
+		if err != nil {
+			return 0, 0, err
+		}
 	} else {
-		cmdline = makeCmdLine(argv)
+		// Use argv0 as the first element since it may have been updated
+		// above to be an absolute path.
+		cmdline = makeCmdLine(append([]string{argv0}, argv[1:]...))
 	}
 
-	var argvp *uint16
+	var cmdlinep *uint16
 	if len(cmdline) != 0 {
-		argvp, err = UTF16PtrFromString(cmdline)
+		cmdlinep, err = UTF16PtrFromString(cmdline)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -413,9 +417,9 @@ func StartProcess(argv0 string, argv []string, attr *ProcAttr) (pid int, handle 
 	pi := new(ProcessInformation)
 	flags := sys.CreationFlags | CREATE_UNICODE_ENVIRONMENT | _EXTENDED_STARTUPINFO_PRESENT
 	if sys.Token != 0 {
-		err = CreateProcessAsUser(sys.Token, argv0p, argvp, sys.ProcessAttributes, sys.ThreadAttributes, willInheritHandles, flags, envBlock, dirp, &si.StartupInfo, pi)
+		err = CreateProcessAsUser(sys.Token, appnamep, cmdlinep, sys.ProcessAttributes, sys.ThreadAttributes, willInheritHandles, flags, envBlock, dirp, &si.StartupInfo, pi)
 	} else {
-		err = CreateProcess(argv0p, argvp, sys.ProcessAttributes, sys.ThreadAttributes, willInheritHandles, flags, envBlock, dirp, &si.StartupInfo, pi)
+		err = CreateProcess(appnamep, cmdlinep, sys.ProcessAttributes, sys.ThreadAttributes, willInheritHandles, flags, envBlock, dirp, &si.StartupInfo, pi)
 	}
 	if err != nil {
 		return 0, 0, err

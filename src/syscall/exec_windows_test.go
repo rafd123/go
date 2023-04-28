@@ -5,9 +5,12 @@
 package syscall_test
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"syscall"
 	"testing"
@@ -43,6 +46,73 @@ func TestEscapeArg(t *testing.T) {
 	for _, test := range tests {
 		if got := syscall.EscapeArg(test.input); got != test.output {
 			t.Errorf("EscapeArg(%#q) = %#q, want %#q", test.input, got, test.output)
+		}
+	}
+}
+
+func TestStartProcessBatchFile(t *testing.T) {
+	const batchFileContent = "@echo %*"
+
+	dir, err := os.MkdirTemp("", "TestStartProcessBatchFile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	noSpacesInPath := path.Join(dir, "no-spaces-in-path.cmd")
+	err = os.WriteFile(noSpacesInPath, []byte(batchFileContent), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	spacesInPath := path.Join(dir, "spaces in path.cmd")
+	err = os.WriteFile(spacesInPath, []byte(batchFileContent), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		batchFile string
+		args      []string
+		want      string
+	}{
+		{noSpacesInPath, []string{noSpacesInPath}, "ECHO is on."},
+		{spacesInPath, []string{spacesInPath}, "ECHO is on."},
+		{noSpacesInPath, []string{noSpacesInPath, "test-arg-no-spaces"}, "test-arg-no-spaces"},
+		{spacesInPath, []string{spacesInPath, "test-arg-no-spaces"}, "test-arg-no-spaces"},
+		{noSpacesInPath, []string{noSpacesInPath, "test arg spaces"}, `"test arg spaces"`},
+		{spacesInPath, []string{spacesInPath, "test arg spaces"}, `"test arg spaces"`},
+		{noSpacesInPath, []string{noSpacesInPath, "test arg spaces", "test-arg-no-spaces"}, `"test arg spaces" test-arg-no-spaces`},
+		{spacesInPath, []string{spacesInPath, "test arg spaces", "test-arg-no-spaces"}, `"test arg spaces" test-arg-no-spaces`},
+	}
+	for _, test := range tests {
+		pr, pw, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer pr.Close()
+		defer pw.Close()
+
+		attr := &os.ProcAttr{Files: []*os.File{nil, pw, pw}}
+		p, err := os.StartProcess(test.batchFile, test.args, attr)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = p.Wait()
+		if err != nil {
+			t.Fatal(err)
+		}
+		pw.Close()
+
+		var buf bytes.Buffer
+		_, err = io.Copy(&buf, pr)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if got, want := string(buf.Bytes()), test.want+"\r\n"; got != want {
+			t.Errorf("StartProcess(%#q, %#q) = %#q, want %#q", test.batchFile, test.args, got, want)
 		}
 	}
 }
